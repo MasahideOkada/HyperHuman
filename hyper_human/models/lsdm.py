@@ -64,7 +64,7 @@ class UNet2DConditionLSDOutput(BaseOutput):
             The hidden states output conditioned on `encoder_hidden_states` input. Output of last layer of model.
     """
 
-    sample: Tuple[torch.FloatTensor, ...] = None
+    samples: Tuple[torch.FloatTensor, ...] = None
 
 class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
     r"""
@@ -898,24 +898,24 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         if not torch.is_tensor(timesteps):
             # TODO: this requires sync between CPU and GPU. So try to pass timesteps as tensors if you can
             # This would be a good case for the `match` statement (Python 3.10+)
-            is_mps = sample.device.type == "mps"
+            is_mps = samples[0].device.type == "mps"
             if isinstance(timestep, float):
                 dtype = torch.float32 if is_mps else torch.float64
             else:
                 dtype = torch.int32 if is_mps else torch.int64
-            timesteps = torch.tensor([timesteps], dtype=dtype, device=sample.device)
+            timesteps = torch.tensor([timesteps], dtype=dtype, device=samples[0].device)
         elif len(timesteps.shape) == 0:
-            timesteps = timesteps[None].to(sample.device)
+            timesteps = timesteps[None].to(samples[0].device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        timesteps = timesteps.expand(sample.shape[0])
+        timesteps = timesteps.expand(samples[0].shape[0])
 
         t_emb = self.time_proj(timesteps)
 
         # `Timesteps` does not contain any weights and will always return f32 tensors
         # but time_embedding might actually be running in fp16. so we need to cast here.
         # there might be better ways to encapsulate this.
-        t_emb = t_emb.to(dtype=sample.dtype)
+        t_emb = t_emb.to(dtype=samples[0].dtype)
 
         emb = self.time_embedding(t_emb, timestep_cond)
         aug_emb = None
@@ -929,9 +929,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
                 # `Timesteps` does not contain any weights and will always return f32 tensors
                 # there might be better ways to encapsulate this.
-                class_labels = class_labels.to(dtype=sample.dtype)
+                class_labels = class_labels.to(dtype=samples[0].dtype)
 
-            class_emb = self.class_embedding(class_labels).to(dtype=sample.dtype)
+            class_emb = self.class_embedding(class_labels).to(dtype=samples[0].dtype)
 
             if self.config.class_embeddings_concat:
                 emb = torch.cat([emb, class_emb], dim=-1)
