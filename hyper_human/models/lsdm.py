@@ -77,6 +77,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         flip_sin_to_cos (`bool`, *optional*, defaults to `False`):
             Whether to flip the sin to cos in the time embedding.
         freq_shift (`int`, *optional*, defaults to 0): The frequency shift to apply to the time embedding.
+        num_branches (`int`, defaults to 0): The number of expert branches to replicate
         down_block_types (`Tuple[str]`, *optional*, defaults to `("CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "CrossAttnDownBlock2D", "DownBlock2D")`):
             The tuple of downsample blocks to use.
         mid_block_type (`str`, *optional*, defaults to `"UNetMidBlock2DCrossAttn"`):
@@ -160,6 +161,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         center_input_sample: bool = False,
         flip_sin_to_cos: bool = True,
         freq_shift: int = 0,
+        num_branches: int = 3,
         down_block_types: Tuple[str] = (
             "CrossAttnDownBlock2D",
             "CrossAttnDownBlock2D",
@@ -262,9 +264,12 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         # input
         conv_in_padding = (conv_in_kernel - 1) // 2
-        self.conv_in = nn.Conv2d(
-            in_channels, block_out_channels[0], kernel_size=conv_in_kernel, padding=conv_in_padding
-        )
+        self.conv_in_branches = nn.ModuleList([
+            nn.Conv2d(
+                in_channels, block_out_channels[0], kernel_size=conv_in_kernel, padding=conv_in_padding
+            )
+            for _ in range(num_branches)
+        ])
 
         # time
         if time_embedding_type == "fourier":
@@ -389,6 +394,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         else:
             self.time_embed_act = get_activation(time_embedding_act_fn)
 
+        self.down_branches = nn.ModuleList([])
+        self.up_branches = nn.ModuleList([])
         self.down_blocks = nn.ModuleList([])
         self.up_blocks = nn.ModuleList([])
 
@@ -431,33 +438,63 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             output_channel = block_out_channels[i]
             is_final_block = i == len(block_out_channels) - 1
 
-            down_block = get_down_block(
-                down_block_type,
-                num_layers=layers_per_block[i],
-                transformer_layers_per_block=transformer_layers_per_block[i],
-                in_channels=input_channel,
-                out_channels=output_channel,
-                temb_channels=blocks_time_embed_dim,
-                add_downsample=not is_final_block,
-                resnet_eps=norm_eps,
-                resnet_act_fn=act_fn,
-                resnet_groups=norm_num_groups,
-                cross_attention_dim=cross_attention_dim[i],
-                num_attention_heads=num_attention_heads[i],
-                downsample_padding=downsample_padding,
-                dual_cross_attention=dual_cross_attention,
-                use_linear_projection=use_linear_projection,
-                only_cross_attention=only_cross_attention[i],
-                upcast_attention=upcast_attention,
-                resnet_time_scale_shift=resnet_time_scale_shift,
-                attention_type=attention_type,
-                resnet_skip_time_act=resnet_skip_time_act,
-                resnet_out_scale_factor=resnet_out_scale_factor,
-                cross_attention_norm=cross_attention_norm,
-                attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
-                dropout=dropout,
-            )
-            self.down_blocks.append(down_block)
+            if i == 0:
+                for _ in range(num_branches):
+                    down_block = get_down_block(
+                        down_block_type,
+                        num_layers=layers_per_block[i],
+                        transformer_layers_per_block=transformer_layers_per_block[i],
+                        in_channels=input_channel,
+                        out_channels=output_channel,
+                        temb_channels=blocks_time_embed_dim,
+                        add_downsample=not is_final_block,
+                        resnet_eps=norm_eps,
+                        resnet_act_fn=act_fn,
+                        resnet_groups=norm_num_groups,
+                        cross_attention_dim=cross_attention_dim[i],
+                        num_attention_heads=num_attention_heads[i],
+                        downsample_padding=downsample_padding,
+                        dual_cross_attention=dual_cross_attention,
+                        use_linear_projection=use_linear_projection,
+                        only_cross_attention=only_cross_attention[i],
+                        upcast_attention=upcast_attention,
+                        resnet_time_scale_shift=resnet_time_scale_shift,
+                        attention_type=attention_type,
+                        resnet_skip_time_act=resnet_skip_time_act,
+                        resnet_out_scale_factor=resnet_out_scale_factor,
+                        cross_attention_norm=cross_attention_norm,
+                        attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
+                        dropout=dropout,
+                    )
+                    self.down_branches.append(down_block)
+            else:
+                down_block = get_down_block(
+                    down_block_type,
+                    num_layers=layers_per_block[i],
+                    transformer_layers_per_block=transformer_layers_per_block[i],
+                    in_channels=input_channel,
+                    out_channels=output_channel,
+                    temb_channels=blocks_time_embed_dim,
+                    add_downsample=not is_final_block,
+                    resnet_eps=norm_eps,
+                    resnet_act_fn=act_fn,
+                    resnet_groups=norm_num_groups,
+                    cross_attention_dim=cross_attention_dim[i],
+                    num_attention_heads=num_attention_heads[i],
+                    downsample_padding=downsample_padding,
+                    dual_cross_attention=dual_cross_attention,
+                    use_linear_projection=use_linear_projection,
+                    only_cross_attention=only_cross_attention[i],
+                    upcast_attention=upcast_attention,
+                    resnet_time_scale_shift=resnet_time_scale_shift,
+                    attention_type=attention_type,
+                    resnet_skip_time_act=resnet_skip_time_act,
+                    resnet_out_scale_factor=resnet_out_scale_factor,
+                    cross_attention_norm=cross_attention_norm,
+                    attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
+                    dropout=dropout,
+                )
+                self.down_blocks.append(down_block)
 
         # mid
         if mid_block_type == "UNetMidBlock2DCrossAttn":
@@ -525,41 +562,75 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             else:
                 add_upsample = False
 
-            up_block = get_up_block(
-                up_block_type,
-                num_layers=reversed_layers_per_block[i] + 1,
-                transformer_layers_per_block=reversed_transformer_layers_per_block[i],
-                in_channels=input_channel,
-                out_channels=output_channel,
-                prev_output_channel=prev_output_channel,
-                temb_channels=blocks_time_embed_dim,
-                add_upsample=add_upsample,
-                resnet_eps=norm_eps,
-                resnet_act_fn=act_fn,
-                resolution_idx=i,
-                resnet_groups=norm_num_groups,
-                cross_attention_dim=reversed_cross_attention_dim[i],
-                num_attention_heads=reversed_num_attention_heads[i],
-                dual_cross_attention=dual_cross_attention,
-                use_linear_projection=use_linear_projection,
-                only_cross_attention=only_cross_attention[i],
-                upcast_attention=upcast_attention,
-                resnet_time_scale_shift=resnet_time_scale_shift,
-                attention_type=attention_type,
-                resnet_skip_time_act=resnet_skip_time_act,
-                resnet_out_scale_factor=resnet_out_scale_factor,
-                cross_attention_norm=cross_attention_norm,
-                attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
-                dropout=dropout,
-            )
-            self.up_blocks.append(up_block)
+            if is_final_block:
+                for _ in range(num_branches):
+                    up_block = get_up_block(
+                        up_block_type,
+                        num_layers=reversed_layers_per_block[i] + 1,
+                        transformer_layers_per_block=reversed_transformer_layers_per_block[i],
+                        in_channels=input_channel,
+                        out_channels=output_channel,
+                        prev_output_channel=prev_output_channel,
+                        temb_channels=blocks_time_embed_dim,
+                        add_upsample=add_upsample,
+                        resnet_eps=norm_eps,
+                        resnet_act_fn=act_fn,
+                        resolution_idx=i,
+                        resnet_groups=norm_num_groups,
+                        cross_attention_dim=reversed_cross_attention_dim[i],
+                        num_attention_heads=reversed_num_attention_heads[i],
+                        dual_cross_attention=dual_cross_attention,
+                        use_linear_projection=use_linear_projection,
+                        only_cross_attention=only_cross_attention[i],
+                        upcast_attention=upcast_attention,
+                        resnet_time_scale_shift=resnet_time_scale_shift,
+                        attention_type=attention_type,
+                        resnet_skip_time_act=resnet_skip_time_act,
+                        resnet_out_scale_factor=resnet_out_scale_factor,
+                        cross_attention_norm=cross_attention_norm,
+                        attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
+                        dropout=dropout,
+                    )
+                    self.up_branches.append(up_block)
+            else:
+                up_block = get_up_block(
+                    up_block_type,
+                    num_layers=reversed_layers_per_block[i] + 1,
+                    transformer_layers_per_block=reversed_transformer_layers_per_block[i],
+                    in_channels=input_channel,
+                    out_channels=output_channel,
+                    prev_output_channel=prev_output_channel,
+                    temb_channels=blocks_time_embed_dim,
+                    add_upsample=add_upsample,
+                    resnet_eps=norm_eps,
+                    resnet_act_fn=act_fn,
+                    resolution_idx=i,
+                    resnet_groups=norm_num_groups,
+                    cross_attention_dim=reversed_cross_attention_dim[i],
+                    num_attention_heads=reversed_num_attention_heads[i],
+                    dual_cross_attention=dual_cross_attention,
+                    use_linear_projection=use_linear_projection,
+                    only_cross_attention=only_cross_attention[i],
+                    upcast_attention=upcast_attention,
+                    resnet_time_scale_shift=resnet_time_scale_shift,
+                    attention_type=attention_type,
+                    resnet_skip_time_act=resnet_skip_time_act,
+                    resnet_out_scale_factor=resnet_out_scale_factor,
+                    cross_attention_norm=cross_attention_norm,
+                    attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
+                    dropout=dropout,
+                )
+                self.up_blocks.append(up_block)
             prev_output_channel = output_channel
 
         # out
         if norm_num_groups is not None:
-            self.conv_norm_out = nn.GroupNorm(
-                num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps
-            )
+            self.conv_norm_out_branches = nn.ModuleList([
+                nn.GroupNorm(
+                    num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=norm_eps
+                )
+                for _ in range(num_branches)
+            ])
 
             self.conv_act = get_activation(act_fn)
 
@@ -568,9 +639,12 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             self.conv_act = None
 
         conv_out_padding = (conv_out_kernel - 1) // 2
-        self.conv_out = nn.Conv2d(
-            block_out_channels[0], out_channels, kernel_size=conv_out_kernel, padding=conv_out_padding
-        )
+        self.conv_out_branches = nn.ModuleList([
+            nn.Conv2d(
+                block_out_channels[0], out_channels, kernel_size=conv_out_kernel, padding=conv_out_padding
+            )
+            for _ in range(num_branches)
+        ])
 
         if attention_type in ["gated", "gated-text-image"]:
             positive_len = 768
