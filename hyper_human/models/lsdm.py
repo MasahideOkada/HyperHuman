@@ -29,6 +29,7 @@ from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.loaders import UNet2DConditionLoadersMixin
 from diffusers.utils import (
     BaseOutput,
+    CONFIG_NAME,
     DIFFUSERS_CACHE,
     HF_HUB_OFFLINE,
     SAFETENSORS_WEIGHTS_NAME,
@@ -694,7 +695,6 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         cls,
         pretrained_sd_model_path: Union[str, os.PathLike],
         num_branches: int = 3,
-        output_config_path: str = "config.json",
         **kwargs
     ):
         r"""
@@ -714,9 +714,6 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
             num_branches (`int`, *optional*, defaults to 3)
                 Number of expert branches to replicate
-            
-            output_config_path (`str`, *optional*, defaults to "config.json")
-                Filename of model config
 
             cache_dir (`Union[str, os.PathLike]`, *optional*):
                 Path to a directory where a downloaded pretrained model configuration is cached if the standard cache
@@ -870,7 +867,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             pretrained_sd_model_path = os.path.join(pretrained_sd_model_path, subfolder)
 
         # load stable diffusion config
-        sd_config_file = os.path.join(pretrained_sd_model_path, "config.json")
+        sd_config_file = os.path.join(pretrained_sd_model_path, CONFIG_NAME)
         if not os.path.isfile(sd_config_file):
             raise RuntimeError(f"{sd_config_file} does not exist")
         with open(sd_config_file, "r") as f:
@@ -892,8 +889,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         state_dict = OrderedDict()
         for k, v in sd_state_dict.items():
-            name = k.split(".")[0]
-            match name:
+            match (name := k.split(".")[0]):
                 case "conv_in" | "conv_out" | "conv_norm_out":
                     tail = ".".join(k.split(".")[1:])
                     # replicate for expert branches
@@ -953,7 +949,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         elif torch_dtype is not None:
             model = model.to(torch_dtype)
 
-        model.register_to_config(_name_or_path=output_config_path)
+        model.register_to_config(_name_or_path=pretrained_sd_model_path)
 
         # Set model in evaluation mode to deactivate DropOut modules by default
         model.eval()
