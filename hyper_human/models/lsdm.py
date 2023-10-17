@@ -1455,7 +1455,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     scale=lora_scale,
                 )
 
-        # distribute the latent to each branches
+        # distribute the latent to each branch
         num_dim = len(sample.shape)
         sample = sample.unsqueeze(0)
         samples = sample.repeat(self.num_branches, *((1,) * num_dim)).chunk(3)
