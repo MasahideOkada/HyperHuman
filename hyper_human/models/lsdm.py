@@ -14,6 +14,9 @@
 
 # Latent Structural Diffusion Model
 
+import os
+import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -21,9 +24,19 @@ import torch
 import torch.nn as nn
 import torch.utils.checkpoint
 
+from diffusers import __version__
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.loaders import UNet2DConditionLoadersMixin
-from diffusers.utils import BaseOutput, logging
+from diffusers.utils import (
+    BaseOutput,
+    DIFFUSERS_CACHE,
+    HF_HUB_OFFLINE,
+    SAFETENSORS_WEIGHTS_NAME,
+    WEIGHTS_NAME,
+    is_accelerate_available,
+    is_torch_version,
+    logging,
+)
 from diffusers.models.activations import get_activation
 from diffusers.models.attention_processor import (
     ADDED_KV_ATTENTION_PROCESSORS,
@@ -51,6 +64,18 @@ from diffusers.models.unet_2d_blocks import (
     get_down_block,
     get_up_block,
 )
+
+import safetensors
+
+if is_torch_version(">=", "1.9.0"):
+    _LOW_CPU_MEM_USAGE_DEFAULT = True
+else:
+    _LOW_CPU_MEM_USAGE_DEFAULT = False
+
+if is_accelerate_available():
+    import accelerate
+    from accelerate.utils import set_module_tensor_to_device
+    from accelerate.utils.versions import is_torch_version
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -401,10 +426,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         else:
             self.time_embed_act = get_activation(time_embedding_act_fn)
 
-        self.down_branches = nn.ModuleList([])
-        self.up_branches = nn.ModuleList([])
-        self.down_blocks = nn.ModuleList([])
-        self.up_blocks = nn.ModuleList([])
+        self.down_block_branches = nn.ModuleList([])
+        self.up_block_branches = nn.ModuleList([])
+        self.down_blocks_shared = nn.ModuleList([])
+        self.up_blocks_shared = nn.ModuleList([])
 
         if isinstance(only_cross_attention, bool):
             if mid_block_only_cross_attention is None:
@@ -473,7 +498,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                         attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
                         dropout=dropout,
                     )
-                    self.down_branches.append(down_block)
+                    self.down_block_branches.append(down_block)
             else:
                 down_block = get_down_block(
                     down_block_type,
@@ -501,7 +526,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
                     dropout=dropout,
                 )
-                self.down_blocks.append(down_block)
+                self.down_blocks_shared.append(down_block)
 
         # mid
         if mid_block_type == "UNetMidBlock2DCrossAttn":
@@ -582,7 +607,6 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                         add_upsample=add_upsample,
                         resnet_eps=norm_eps,
                         resnet_act_fn=act_fn,
-                        resolution_idx=i,
                         resnet_groups=norm_num_groups,
                         cross_attention_dim=reversed_cross_attention_dim[i],
                         num_attention_heads=reversed_num_attention_heads[i],
@@ -598,36 +622,35 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                         attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
                         dropout=dropout,
                     )
-                    self.up_branches.append(up_block)
+                    self.up_block_branches.append(up_block)
             else:
                 up_block = get_up_block(
                     up_block_type,
-                    num_layers=reversed_layers_per_block[i] + 1,
-                    transformer_layers_per_block=reversed_transformer_layers_per_block[i],
-                    in_channels=input_channel,
-                    out_channels=output_channel,
-                    prev_output_channel=prev_output_channel,
-                    temb_channels=blocks_time_embed_dim,
-                    add_upsample=add_upsample,
-                    resnet_eps=norm_eps,
-                    resnet_act_fn=act_fn,
-                    resolution_idx=i,
-                    resnet_groups=norm_num_groups,
-                    cross_attention_dim=reversed_cross_attention_dim[i],
-                    num_attention_heads=reversed_num_attention_heads[i],
-                    dual_cross_attention=dual_cross_attention,
-                    use_linear_projection=use_linear_projection,
-                    only_cross_attention=only_cross_attention[i],
-                    upcast_attention=upcast_attention,
-                    resnet_time_scale_shift=resnet_time_scale_shift,
-                    attention_type=attention_type,
-                    resnet_skip_time_act=resnet_skip_time_act,
-                    resnet_out_scale_factor=resnet_out_scale_factor,
-                    cross_attention_norm=cross_attention_norm,
-                    attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
-                    dropout=dropout,
+                        num_layers=reversed_layers_per_block[i] + 1,
+                        transformer_layers_per_block=reversed_transformer_layers_per_block[i],
+                        in_channels=input_channel,
+                        out_channels=output_channel,
+                        prev_output_channel=prev_output_channel,
+                        temb_channels=blocks_time_embed_dim,
+                        add_upsample=add_upsample,
+                        resnet_eps=norm_eps,
+                        resnet_act_fn=act_fn,
+                        resnet_groups=norm_num_groups,
+                        cross_attention_dim=reversed_cross_attention_dim[i],
+                        num_attention_heads=reversed_num_attention_heads[i],
+                        dual_cross_attention=dual_cross_attention,
+                        use_linear_projection=use_linear_projection,
+                        only_cross_attention=only_cross_attention[i],
+                        upcast_attention=upcast_attention,
+                        resnet_time_scale_shift=resnet_time_scale_shift,
+                        attention_type=attention_type,
+                        resnet_skip_time_act=resnet_skip_time_act,
+                        resnet_out_scale_factor=resnet_out_scale_factor,
+                        cross_attention_norm=cross_attention_norm,
+                        attention_head_dim=attention_head_dim[i] if attention_head_dim[i] is not None else output_channel,
+                        dropout=dropout,
                 )
-                self.up_blocks.append(up_block)
+                self.up_blocks_shared.append(up_block)
             prev_output_channel = output_channel
 
         # out
@@ -664,6 +687,280 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             self.position_net = PositionNet(
                 positive_len=positive_len, out_dim=cross_attention_dim, feature_type=feature_type
             )
+
+    # modification of `from_pretrained` method
+    @classmethod
+    def from_pretrained_sd(
+        cls,
+        pretrained_sd_model_path: Union[str, os.PathLike],
+        num_branches: int = 3,
+        output_config_path: str = "config.json",
+        **kwargs
+    ):
+        r"""
+        Instantiate a pretrained PyTorch model from a pretrained stable diffusion configuration.
+
+        The model is set in evaluation mode - `model.eval()` - by default, and dropout modules are deactivated. To
+        train the model, set it back in training mode with `model.train()`.
+
+        Parameters:
+            pretrained_sd_model_path (`str` or `os.PathLike`):
+                Can be either:
+
+                    - A string, the *model id* (for example `google/ddpm-celebahq-256`) of a pretrained model hosted on
+                      the Hub.
+                    - A path to a *directory* (for example `./my_model_directory`) containing the model weights saved
+                      with [`~ModelMixin.save_pretrained`].
+
+            num_branches (`int`, *optional*, defaults to 3)
+                Number of expert branches to replicate
+            
+            output_config_path (`str`, *optional*, defaults to "config.json")
+                Filename of model config
+
+            cache_dir (`Union[str, os.PathLike]`, *optional*):
+                Path to a directory where a downloaded pretrained model configuration is cached if the standard cache
+                is not used.
+            torch_dtype (`str` or `torch.dtype`, *optional*):
+                Override the default `torch.dtype` and load the model with another dtype. If `"auto"` is passed, the
+                dtype is automatically derived from the model's weights.
+            force_download (`bool`, *optional*, defaults to `False`):
+                Whether or not to force the (re-)download of the model weights and configuration files, overriding the
+                cached versions if they exist.
+            resume_download (`bool`, *optional*, defaults to `False`):
+                Whether or not to resume downloading the model weights and configuration files. If set to `False`, any
+                incompletely downloaded files are deleted.
+            proxies (`Dict[str, str]`, *optional*):
+                A dictionary of proxy servers to use by protocol or endpoint, for example, `{'http': 'foo.bar:3128',
+                'http://hostname': 'foo.bar:4012'}`. The proxies are used on each request.
+            output_loading_info (`bool`, *optional*, defaults to `False`):
+                Whether or not to also return a dictionary containing missing keys, unexpected keys and error messages.
+            local_files_only(`bool`, *optional*, defaults to `False`):
+                Whether to only load local model weights and configuration files or not. If set to `True`, the model
+                won't be downloaded from the Hub.
+            use_auth_token (`str` or *bool*, *optional*):
+                The token to use as HTTP bearer authorization for remote files. If `True`, the token generated from
+                `diffusers-cli login` (stored in `~/.huggingface`) is used.
+            revision (`str`, *optional*, defaults to `"main"`):
+                The specific model version to use. It can be a branch name, a tag name, a commit id, or any identifier
+                allowed by Git.
+            from_flax (`bool`, *optional*, defaults to `False`):
+                Load the model weights from a Flax checkpoint save file.
+            subfolder (`str`, *optional*, defaults to `""`):
+                The subfolder location of a model file within a larger model repository on the Hub or locally.
+            mirror (`str`, *optional*):
+                Mirror source to resolve accessibility issues if you're downloading a model in China. We do not
+                guarantee the timeliness or safety of the source, and you should refer to the mirror site for more
+                information.
+            device_map (`str` or `Dict[str, Union[int, str, torch.device]]`, *optional*):
+                A map that specifies where each submodule should go. It doesn't need to be defined for each
+                parameter/buffer name; once a given module name is inside, every submodule of it will be sent to the
+                same device.
+
+                Set `device_map="auto"` to have 🤗 Accelerate automatically compute the most optimized `device_map`. For
+                more information about each option see [designing a device
+                map](https://hf.co/docs/accelerate/main/en/usage_guides/big_modeling#designing-a-device-map).
+            max_memory (`Dict`, *optional*):
+                A dictionary device identifier for the maximum memory. Will default to the maximum memory available for
+                each GPU and the available CPU RAM if unset.
+            offload_folder (`str` or `os.PathLike`, *optional*):
+                The path to offload weights if `device_map` contains the value `"disk"`.
+            offload_state_dict (`bool`, *optional*):
+                If `True`, temporarily offloads the CPU state dict to the hard drive to avoid running out of CPU RAM if
+                the weight of the CPU state dict + the biggest shard of the checkpoint does not fit. Defaults to `True`
+                when there is some disk offload.
+            low_cpu_mem_usage (`bool`, *optional*, defaults to `True` if torch version >= 1.9.0 else `False`):
+                Speed up model loading only loading the pretrained weights and not initializing the weights. This also
+                tries to not use more than 1x model size in CPU memory (including peak memory) while loading the model.
+                Only supported for PyTorch >= 1.9.0. If you are using an older version of PyTorch, setting this
+                argument to `True` will raise an error.
+            variant (`str`, *optional*):
+                Load weights from a specified `variant` filename such as `"fp16"` or `"ema"`. This is ignored when
+                loading `from_flax`.
+            use_safetensors (`bool`, *optional*, defaults to `None`):
+                If set to `None`, the `safetensors` weights are downloaded if they're available **and** if the
+                `safetensors` library is installed. If set to `True`, the model is forcibly loaded from `safetensors`
+                weights. If set to `False`, `safetensors` weights are not loaded.
+
+        <Tip>
+
+        To use private or [gated models](https://huggingface.co/docs/hub/models-gated#gated-models), log-in with
+        `huggingface-cli login`. You can also activate the special
+        ["offline-mode"](https://huggingface.co/diffusers/installation.html#offline-mode) to use this method in a
+        firewalled environment.
+
+        </Tip>
+
+        Example:
+
+        ```py
+        from diffusers import UNet2DConditionModel
+
+        unet = UNet2DConditionModel.from_pretrained("runwayml/stable-diffusion-v1-5", subfolder="unet")
+        ```
+
+        If you get the error message below, you need to finetune the weights for your downstream task:
+
+        ```bash
+        Some weights of UNet2DConditionModel were not initialized from the model checkpoint at runwayml/stable-diffusion-v1-5 and are newly initialized because the shapes did not match:
+        - conv_in.weight: found shape torch.Size([320, 4, 3, 3]) in the checkpoint and torch.Size([320, 9, 3, 3]) in the model instantiated
+        You should probably TRAIN this model on a down-stream task to be able to use it for predictions and inference.
+        ```
+        """
+        cache_dir = kwargs.pop("cache_dir", DIFFUSERS_CACHE)
+        ignore_mismatched_sizes = kwargs.pop("ignore_mismatched_sizes", False)
+        force_download = kwargs.pop("force_download", False)
+        from_flax = kwargs.pop("from_flax", False)
+        resume_download = kwargs.pop("resume_download", False)
+        proxies = kwargs.pop("proxies", None)
+        output_loading_info = kwargs.pop("output_loading_info", False)
+        local_files_only = kwargs.pop("local_files_only", HF_HUB_OFFLINE)
+        use_auth_token = kwargs.pop("use_auth_token", None)
+        revision = kwargs.pop("revision", None)
+        torch_dtype = kwargs.pop("torch_dtype", None)
+        subfolder = kwargs.pop("subfolder", None)
+        device_map = kwargs.pop("device_map", None)
+        max_memory = kwargs.pop("max_memory", None)
+        offload_folder = kwargs.pop("offload_folder", None)
+        offload_state_dict = kwargs.pop("offload_state_dict", False)
+        low_cpu_mem_usage = kwargs.pop("low_cpu_mem_usage", _LOW_CPU_MEM_USAGE_DEFAULT)
+        variant = kwargs.pop("variant", None)
+        use_safetensors = kwargs.pop("use_safetensors", None)
+
+        allow_pickle = False
+        if use_safetensors is None:
+            use_safetensors = True
+            allow_pickle = True
+
+        if low_cpu_mem_usage and not is_accelerate_available():
+            low_cpu_mem_usage = False
+            logger.warning(
+                "Cannot initialize model with low cpu memory usage because `accelerate` was not found in the"
+                " environment. Defaulting to `low_cpu_mem_usage=False`. It is strongly recommended to install"
+                " `accelerate` for faster and less memory-intense model loading. You can do so with: \n```\npip"
+                " install accelerate\n```\n."
+            )
+
+        if device_map is not None and not is_accelerate_available():
+            raise NotImplementedError(
+                "Loading and dispatching requires `accelerate`. Please make sure to install accelerate or set"
+                " `device_map=None`. You can install accelerate with `pip install accelerate`."
+            )
+
+        # Check if we can handle device_map and dispatching the weights
+        if device_map is not None and not is_torch_version(">=", "1.9.0"):
+            raise NotImplementedError(
+                "Loading and dispatching requires torch >= 1.9.0. Please either update your PyTorch version or set"
+                " `device_map=None`."
+            )
+
+        if low_cpu_mem_usage is True and not is_torch_version(">=", "1.9.0"):
+            raise NotImplementedError(
+                "Low memory initialization requires torch >= 1.9.0. Please either update your PyTorch version or set"
+                " `low_cpu_mem_usage=False`."
+            )
+
+        if low_cpu_mem_usage is False and device_map is not None:
+            raise ValueError(
+                f"You cannot set `low_cpu_mem_usage` to `False` while using device_map={device_map} for loading and"
+                " dispatching. Please make sure to set `low_cpu_mem_usage=True`."
+            )
+        
+        if subfolder is not None:
+            pretrained_sd_model_path = os.path.join(pretrained_sd_model_path, subfolder)
+
+        # load stable diffusion config
+        sd_config_file = os.path.join(pretrained_sd_model_path, "config.json")
+        if not os.path.isfile(sd_config_file):
+            raise RuntimeError(f"{sd_config_file} does not exist")
+        with open(sd_config_file, "r") as f:
+            sd_config = json.load(f)
+        
+        if use_safetensors:
+            sd_model_file = os.path.join(pretrained_sd_model_path, SAFETENSORS_WEIGHTS_NAME)
+            if not os.path.isfile(sd_model_file):
+                raise RuntimeError(f"{sd_model_file} does not exist")
+            sd_state_dict = safetensors.torch.load_file(sd_model_file, device="cpu")
+        else:
+            sd_model_file = os.path.join(pretrained_sd_model_path, WEIGHTS_NAME)
+            if not os.path.isfile(sd_model_file):
+                raise RuntimeError(f"{sd_model_file} does not exist")
+            sd_state_dict = torch.load(sd_model_file, map_location="cpu")
+        
+        config = {**sd_config, "num_branches": num_branches}
+        model = cls.from_config(config)
+
+        state_dict = OrderedDict()
+        for k, v in sd_state_dict.items():
+            name = k.split(".")[0]
+            match name:
+                case "conv_in" | "conv_out" | "conv_norm_out":
+                    tail = ".".join(k.split(".")[1:])
+                    # replicate for expert branches
+                    for i in range(num_branches):
+                        key = f"{name}_branches.{i}.{tail}"
+                        val = v.clone().detach()
+                        state_dict[key] = val
+                case "down_blocks":
+                    idx = int(k.split(".")[1])
+                    tail = ".".join(k.split(".")[2:])
+                    # shared down blocks
+                    if idx != 0:
+                        key = f"down_blocks_shared.{idx - 1}.{tail}"
+                        state_dict[key] = v
+                        continue
+                    # replicate for expert branches
+                    for i in range(num_branches):  
+                        key = f"down_block_branches.{i}.{tail}"
+                        val = v.clone().detach()
+                        state_dict[key] = val
+                case "up_blocks":
+                    idx = int(k.split(".")[1])
+                    tail = ".".join(k.split(".")[2:])
+                    is_final_block = idx == len(config["up_block_types"]) - 1
+                    # shared up blocks
+                    if not is_final_block:
+                        key = f"up_blocks_shared.{idx}.{tail}"
+                        state_dict[key] = v
+                        continue
+                    # replicate for expert branches
+                    for i in range(num_branches):  
+                        key = f"up_block_branches.{i}.{tail}"
+                        val = v.clone().detach()
+                        state_dict[key] = val
+                case _:
+                    state_dict[k] = v
+
+        model, missing_keys, unexpected_keys, mismatched_keys, error_msgs = cls._load_pretrained_model(
+            model,
+            state_dict,
+            sd_model_file,
+            pretrained_sd_model_path,
+            ignore_mismatched_sizes=ignore_mismatched_sizes,
+        )
+
+        loading_info = {
+            "missing_keys": missing_keys,
+            "unexpected_keys": unexpected_keys,
+            "mismatched_keys": mismatched_keys,
+            "error_msgs": error_msgs,
+        }
+
+        if torch_dtype is not None and not isinstance(torch_dtype, torch.dtype):
+            raise ValueError(
+                f"{torch_dtype} needs to be of type `torch.dtype`, e.g. `torch.float16`, but is {type(torch_dtype)}."
+            )
+        elif torch_dtype is not None:
+            model = model.to(torch_dtype)
+
+        model.register_to_config(_name_or_path=output_config_path)
+
+        # Set model in evaluation mode to deactivate DropOut modules by default
+        model.eval()
+        if output_loading_info:
+            return model, loading_info
+
+        return model
     
     @property
     def attn_processors(self) -> Dict[str, AttentionProcessor]:
