@@ -12,5 +12,4 @@ def normalize(x: Tensor, mean: Tensor, std: Tensor) -> Tensor:
     return (x - mean) / std
 
 def average(inputs: List[Tensor]) -> Tensor:
-    avg = torch.stack(inputs).sum(dim=0)
-    return avg / len(inputs)
+    return torch.stack(inputs).sum(dim=0) / len(inputs)
