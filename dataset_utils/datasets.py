@@ -14,9 +14,9 @@ class LSDMDataset(Dataset):
     def __init__(
         self,
         data_dir: Union[str, os.PathLike],
-        condition_subdir: Union[str, os.PathLike],
-        caption_subdir: Union[str, os.PathLike],
         target_subdirs: List[Union[str, os.PathLike]],
+        caption_subdir: Union[str, os.PathLike],
+        condition_subdir: Union[str, os.PathLike],
         resolution: int = 512,
         center_crop: bool = True,
         proportion_empty_prompts: float = 0.0,
@@ -25,8 +25,8 @@ class LSDMDataset(Dataset):
         seed: int = 1,
     ):
         self.cond_dir = os.path.join(data_dir, condition_subdir)
-        self.cap_dir = os.path.join(data_dir, caption_subdir)
         self.tgt_dirs = [os.path.join(data_dir, sub_dir) for sub_dir in target_subdirs]
+        self.cap_dir = os.path.join(data_dir, caption_subdir)
 
         # get image filenames
         search_dir = os.path.join(data_dir, target_subdirs[0])
@@ -60,16 +60,16 @@ class LSDMDataset(Dataset):
 
         # get data paths
         img_name = self.img_names[idx]
-        cond_path = os.path.join(self.cond_dir, img_name)
         tgt_paths = [os.path.join(dir, img_name) for dir in self.tgt_dirs]
+        cond_path = os.path.join(self.cond_dir, img_name)
         cap_name = ".".join([*(img_name.split(".")[:-1]), "txt"])
         cap_path = os.path.join(self.cap_dir, cap_name)
 
         # load images
-        cond_img = Image.open(cond_path).convert("RGB")
         tgt_imgs = [Image.open(path).convert("RGB") for path in tgt_paths]
-        example["pixel_values"] = self.preproc(cond_img)
-        example["tgt_pixel_values"] = [self.preproc(img) for img in tgt_imgs]
+        cond_img = Image.open(cond_path).convert("RGB")
+        example["pixel_values_list"] = [self.preproc(img) for img in tgt_imgs]
+        example["conditioning_pixel_values"] = self.preproc(cond_img)
 
         # get caption
         with open(cap_path, "r", encoding="utf-8") as f:
