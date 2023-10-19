@@ -1353,16 +1353,16 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         # down branches
         down_branch_samples = []
-        down_branch_res_samples_list = [(sample_i,) for sample_i in samples]
-        for i, (sample, downsample_branch) in enumerate(zip(samples, self.down_block_branches)):
+        down_branch_res_samples = [(sample_i,) for sample_i in samples]
+        for i, (sample_i, downsample_branch) in enumerate(zip(samples, self.down_block_branches)):
             if hasattr(downsample_branch, "has_cross_attention") and downsample_branch.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
                 additional_residuals = {}
                 if is_adapter and len(down_block_additional_residuals) > 0:
                     additional_residuals["additional_residuals"] = down_block_additional_residuals.pop(0)
 
-                sample, res_samples = downsample_branch(
-                    hidden_states=sample,
+                sample_i, res_samples = downsample_branch(
+                    hidden_states=sample_i,
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
@@ -1371,13 +1371,13 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     **additional_residuals,
                 )
             else:
-                sample, res_samples = downsample_branch(hidden_states=sample, temb=emb, scale=lora_scale)
+                sample_i, res_samples = downsample_branch(hidden_states=sample_i, temb=emb, scale=lora_scale)
 
                 if is_adapter and len(down_block_additional_residuals) > 0:
-                    sample += down_block_additional_residuals.pop(0)
+                    sample_i += down_block_additional_residuals.pop(0)
 
-            down_branch_samples.append(sample)
-            down_branch_res_samples_list[i] += res_samples
+            down_branch_samples.append(sample_i)
+            down_branch_res_samples[i] += res_samples
 
         # normalize non RGB features to the similar distribution of RGB feature and take average of them
         # mentioned in https://github.com/snap-research/HyperHuman/issues/4
@@ -1489,14 +1489,14 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         out_samples = []
         # up branches
-        for i, (sample, down_branch_res_samples, upsample_branch) in enumerate(
-            zip(samples, down_branch_res_samples_list, self.up_block_branches)
+        for i, (sample_i, down_branch_res_samples_i, upsample_branch) in enumerate(
+            zip(samples, down_branch_res_samples, self.up_block_branches)
         ):
             #is_final_block = i == len(self.up_blocks) - 1
             is_final_block = True
 
-            res_samples = down_branch_res_samples[-len(upsample_branch.resnets) :]
-            down_block_res_samples = down_branch_res_samples[: -len(upsample_branch.resnets)]
+            res_samples = down_branch_res_samples_i[-len(upsample_branch.resnets) :]
+            down_block_res_samples = down_branch_res_samples_i[: -len(upsample_branch.resnets)]
 
             # if we have not reached the final block and need to forward the
             # upsample size, we do it here
@@ -1504,8 +1504,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
             if hasattr(upsample_branch, "has_cross_attention") and upsample_branch.has_cross_attention:
-                sample = upsample_branch(
-                    hidden_states=sample,
+                sample_i = upsample_branch(
+                    hidden_states=sample_i,
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
                     encoder_hidden_states=encoder_hidden_states,
@@ -1515,15 +1515,15 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     encoder_attention_mask=encoder_attention_mask,
                 )
             else:
-                sample = upsample_branch(
-                    hidden_states=sample,
+                sample_i = upsample_branch(
+                    hidden_states=sample_i,
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
                     upsample_size=upsample_size,
                     scale=lora_scale,
                 )
             
-            out_samples.append(sample)
+            out_samples.append(sample_i)
 
         # 6. post-process
         if self.conv_norm_out_branches:
