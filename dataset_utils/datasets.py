@@ -3,6 +3,7 @@ import glob
 import random
 from typing import List, Union, Dict, Any
 
+import numpy as np
 from PIL import Image
 
 #import torch
@@ -20,7 +21,8 @@ class LSDMDataset(Dataset):
         center_crop: bool = True,
         proportion_empty_prompts: float = 0.0,
         #random_flip: bool = False,
-        ext: Union[str, List[str]] = "png"
+        ext: Union[str, List[str]] = "png",
+        seed: int = 1,
     ):
         self.cond_dir = os.path.join(data_dir, condition_subdir)
         self.cap_dir = os.path.join(data_dir, caption_subdir)
@@ -46,6 +48,8 @@ class LSDMDataset(Dataset):
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
             ]
         )
+        
+        self.rng = np.random.default_rng(seed)
         self.proportion_empty_prompts = proportion_empty_prompts
     
     def __len__(self) -> int:
@@ -69,9 +73,9 @@ class LSDMDataset(Dataset):
 
         # get caption
         with open(cap_path, "r", encoding="utf-8") as f:
-            caption = f.readline()[0]
+            caption = f.readline()
         example["prompt"] = (
-            "" if random.random() < self.proportion_empty_prompts else caption   
+            "" if self.rng.random() < self.proportion_empty_prompts else caption   
         )
 
         return example
