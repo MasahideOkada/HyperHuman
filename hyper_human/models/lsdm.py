@@ -897,10 +897,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         model = cls.from_config(config)
 
         out_channels = model.config.block_out_channels[0]
-        kernel_size = model.config.conv_in_kernel
-        padding = (kernel_size - 1) // 2
+        conv_in_kernel = model.config.conv_in_kernel
+        conv_in_padding = (conv_in_kernel - 1) // 2
         conv_in = nn.Conv2d(
-            in_channels_new, out_channels, kernel_size=kernel_size, padding=padding
+            in_channels_new, out_channels, kernel_size=conv_in_kernel, padding=conv_in_padding
         )
         conv_in_state_dict = conv_in.state_dict()
 
