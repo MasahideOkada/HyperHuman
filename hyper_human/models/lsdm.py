@@ -890,7 +890,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         config = {**sd_config, "num_branches": num_branches}
         # `in_channels` of `conv_in` changes from the pretrained stable diffusion
         # because a condition latent is concatenated channel-wise to noise latent.
-        # here we assume channels of the condition is the same as that of the noise
+        # here we assume the channel size of the condition is the same as that of the noise
         in_channels_old = config["in_channels"]
         in_channels_new = 2 * in_channels_old
         config["in_channels"] = in_channels_new
