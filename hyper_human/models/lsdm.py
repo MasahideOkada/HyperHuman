@@ -194,7 +194,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
     def __init__(
         self,
         sample_size: Optional[int] = None,
-        in_channels: int = 4,
+        in_channels: int = 8,
         out_channels: int = 4,
         center_input_sample: bool = False,
         flip_sin_to_cos: bool = True,
@@ -888,12 +888,35 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             sd_state_dict = torch.load(sd_model_file, map_location="cpu")
         
         config = {**sd_config, "num_branches": num_branches}
+        # `in_channels` of `conv_in` changes from the pretrained stable diffusion
+        # because a condition latent is concatenated channel-wise to noise latent.
+        # here we assume channels of the condition is the same as that of the noise
+        in_channels_old = config["in_channels"]
+        in_channels_new = 2 * in_channels_old
+        config["in_channels"] = in_channels_new
         model = cls.from_config(config)
+
+        out_channels = model.config.block_out_channels[0]
+        kernel_size = model.config.conv_in_kernel
+        padding = (kernel_size - 1) // 2
+        conv_in = nn.Conv2d(
+            in_channels_new, out_channels, kernel_size=kernel_size, padding=padding
+        )
+        conv_in_state_dict = conv_in.state_dict()
 
         state_dict = OrderedDict()
         for k, v in sd_state_dict.items():
             match (block_name := k.split(".")[0]):
-                case "conv_in" | "conv_out" | "conv_norm_out":
+                case "conv_in":
+                    module_name = ".".join(k.split(".")[1:])
+                    param_name = k.split(".")[-1]
+                    # replicate for expert branches
+                    for i in range(num_branches):
+                        conv_in_branch_state_dict = conv_in_state_dict.copy()
+                        key = f"{block_name}_branches.{i}.{module_name}"
+                        val = conv_in_branch_state_dict[param_name]
+                        state_dict[key] = val
+                case "conv_out" | "conv_norm_out":
                     module_name = ".".join(k.split(".")[1:])
                     # replicate for expert branches
                     for i in range(num_branches):
