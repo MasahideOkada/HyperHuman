@@ -89,14 +89,14 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 @dataclass
 class UNet2DConditionLSDOutput(BaseOutput):
     """
-    The output of [`UNet2DConditionModel`].
+    The output of [`UNet2DConditionLSDModel`].
 
     Args:
-        sample (tuple of `torch.FloatTensor` of shape `(batch_size, num_channels, height, width)`):
+        samples (`torch.FloatTensor` of shape `(num_branches, batch_size, num_channels, height, width)`):
             The hidden states output conditioned on `encoder_hidden_states` input. Output of last layer of model.
     """
 
-    samples: Tuple[torch.FloatTensor, ...] = None
+    samples: torch.FloatTensor = None
 
 class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin):
     r"""
@@ -1130,7 +1130,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
     
     def forward(
         self,
-        samples: List[torch.FloatTensor],
+        samples: torch.FloatTensor,
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
         class_labels: Optional[torch.Tensor] = None,
@@ -1148,8 +1148,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         The [`UNet2DConditionLSDModel`] forward method.
 
         Args:
-            samples (`List[torch.FloatTensor]`):
-                The noisy input tensors with the following shape `(batch, channel, height, width)`.
+            samples (`torch.FloatTensor`):
+                The noisy input tensor with the following shape `(num_branches, batch, channel, height, width)`.
             timestep (`torch.FloatTensor` or `float` or `int`): The number of timesteps to denoise an input.
             encoder_hidden_states (`torch.FloatTensor`):
                 The encoder hidden states with shape `(batch, sequence_length, feature_dim)`.
@@ -1173,7 +1173,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 If `return_dict` is True, an [`~UNet2DConditionLSDOutput`] is returned, otherwise
                 a `tuple` is returned where the first element is the sample tensor.
         """
-        if len(samples) != self.num_branches:
+        if samples.shape[0] != self.num_branches:
             raise ValueError(f"the number of samples must be {self.num_branches}, the same as the number of branches")
 
         # By default samples have to be AT least a multiple of the overall upsampling factor.
@@ -1186,7 +1186,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         forward_upsample_size = False
         upsample_size = None
 
-        if any(s % default_overall_up_factor != 0 for s in samples[0].shape[-2:]):
+        if any(s % default_overall_up_factor != 0 for s in samples.shape[-2:]):
             logger.info("Forward upsample size to force interpolation output size.")
             forward_upsample_size = True
 
@@ -1203,17 +1203,17 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             #   (1 = keep,      0 = discard)
             # convert mask into a bias that can be added to attention scores:
             #       (keep = +0,     discard = -10000.0)
-            attention_mask = (1 - attention_mask.to(samples[0].dtype)) * -10000.0
+            attention_mask = (1 - attention_mask.to(samples.dtype)) * -10000.0
             attention_mask = attention_mask.unsqueeze(1)
 
         # convert encoder_attention_mask to a bias the same way we do for attention_mask
         if encoder_attention_mask is not None:
-            encoder_attention_mask = (1 - encoder_attention_mask.to(samples[0].dtype)) * -10000.0
+            encoder_attention_mask = (1 - encoder_attention_mask.to(samples.dtype)) * -10000.0
             encoder_attention_mask = encoder_attention_mask.unsqueeze(1)
 
         # 0. center input if necessary
         if self.config.center_input_sample:
-            samples = [2 * sample_i - 1.0 for sample_i in samples]
+            samples = 2 * samples - 1.0
 
         # 1. time
         timesteps = timestep
@@ -1225,19 +1225,19 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 dtype = torch.float32 if is_mps else torch.float64
             else:
                 dtype = torch.int32 if is_mps else torch.int64
-            timesteps = torch.tensor([timesteps], dtype=dtype, device=samples[0].device)
+            timesteps = torch.tensor([timesteps], dtype=dtype, device=samples.device)
         elif len(timesteps.shape) == 0:
-            timesteps = timesteps[None].to(samples[0].device)
+            timesteps = timesteps[None].to(samples.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        timesteps = timesteps.expand(samples[0].shape[0])
+        timesteps = timesteps.expand(samples.shape[1])
 
         t_emb = self.time_proj(timesteps)
 
         # `Timesteps` does not contain any weights and will always return f32 tensors
         # but time_embedding might actually be running in fp16. so we need to cast here.
         # there might be better ways to encapsulate this.
-        t_emb = t_emb.to(dtype=samples[0].dtype)
+        t_emb = t_emb.to(dtype=samples.dtype)
 
         emb = self.time_embedding(t_emb, timestep_cond)
         aug_emb = None
@@ -1251,9 +1251,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
                 # `Timesteps` does not contain any weights and will always return f32 tensors
                 # there might be better ways to encapsulate this.
-                class_labels = class_labels.to(dtype=samples[0].dtype)
+                class_labels = class_labels.to(dtype=samples.dtype)
 
-            class_emb = self.class_embedding(class_labels).to(dtype=samples[0].dtype)
+            class_emb = self.class_embedding(class_labels).to(dtype=samples.dtype)
 
             if self.config.class_embeddings_concat:
                 emb = torch.cat([emb, class_emb], dim=-1)
@@ -1307,7 +1307,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             image_embs = added_cond_kwargs.get("image_embeds")
             hint = added_cond_kwargs.get("hint")
             aug_emb, hint = self.add_embedding(image_embs, hint)
-            samples = [torch.cat([sample_i, hint], dim=1) for sample_i in samples]
+            num_dim = len(hint.shape)
+            hint.unsqueeze_(0)
+            hint = hint.repeat(self.num_branches, *((1,) * num_dim))
+            samples = torch.cat([samples, hint], dim=2)
 
         emb = emb + aug_emb if aug_emb is not None else emb
 
@@ -1480,7 +1483,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         # distribute the latent to each branch
         num_dim = len(sample.shape)
-        sample = sample.unsqueeze_(0)
+        sample.unsqueeze_(0)
         samples = sample.repeat(self.num_branches, *((1,) * num_dim)).chunk(self.num_branches)
         samples = [sample_i.squeeze_(0) for sample_i in samples]
 
@@ -1532,9 +1535,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             out_samples = [
                 conv_act(sample_i) for sample_i, conv_act in zip(out_samples, self.conv_acts)
             ]
-        out_samples = [
-            conv_out(sample_i) for sample_i, conv_out in zip(out_samples, self.conv_out_branches)
-        ]
+        out_samples = torch.stack(
+            [conv_out(sample_i) for sample_i, conv_out in zip(out_samples, self.conv_out_branches)]
+        )
 
         if not return_dict:
             return (out_samples,)
