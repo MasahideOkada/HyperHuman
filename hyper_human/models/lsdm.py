@@ -667,11 +667,11 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 ) for _ in range(num_branches)
             ])
 
-            self.conv_act = get_activation(act_fn)
+            self.conv_acts = nn.ModuleList([get_activation(act_fn) for _ in range(num_branches)])
 
         else:
             self.conv_norm_out = None
-            self.conv_act = None
+            self.conv_acts = None
 
         conv_out_padding = (conv_out_kernel - 1) // 2
         self.conv_out_branches = nn.ModuleList([
@@ -892,39 +892,39 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         state_dict = OrderedDict()
         for k, v in sd_state_dict.items():
-            match (name := k.split(".")[0]):
+            match (block_name := k.split(".")[0]):
                 case "conv_in" | "conv_out" | "conv_norm_out":
-                    tail = ".".join(k.split(".")[1:])
+                    module_name = ".".join(k.split(".")[1:])
                     # replicate for expert branches
                     for i in range(num_branches):
-                        key = f"{name}_branches.{i}.{tail}"
+                        key = f"{block_name}_branches.{i}.{module_name}"
                         val = v.clone().detach()
                         state_dict[key] = val
                 case "down_blocks":
                     idx = int(k.split(".")[1])
-                    tail = ".".join(k.split(".")[2:])
+                    module_name = ".".join(k.split(".")[2:])
                     # shared down blocks
                     if idx != 0:
-                        key = f"down_blocks_shared.{idx - 1}.{tail}"
+                        key = f"down_blocks_shared.{idx - 1}.{module_name}"
                         state_dict[key] = v
                         continue
                     # replicate for expert branches
                     for i in range(num_branches):  
-                        key = f"down_block_branches.{i}.{tail}"
+                        key = f"down_block_branches.{i}.{module_name}"
                         val = v.clone().detach()
                         state_dict[key] = val
                 case "up_blocks":
                     idx = int(k.split(".")[1])
-                    tail = ".".join(k.split(".")[2:])
+                    module_name = ".".join(k.split(".")[2:])
                     is_final_block = idx == len(config["up_block_types"]) - 1
                     # shared up blocks
                     if not is_final_block:
-                        key = f"up_blocks_shared.{idx}.{tail}"
+                        key = f"up_blocks_shared.{idx}.{module_name}"
                         state_dict[key] = v
                         continue
                     # replicate for expert branches
                     for i in range(num_branches):  
-                        key = f"up_block_branches.{i}.{tail}"
+                        key = f"up_block_branches.{i}.{module_name}"
                         val = v.clone().detach()
                         state_dict[key] = val
                 case _:
@@ -1506,7 +1506,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     sample_i, conv_norm_out 
                 ) in zip(out_samples, self.conv_norm_out_branches)
             ]
-            out_samples = [self.conv_act(sample_i) for sample_i in out_samples]
+            out_samples = [
+                conv_act(sample_i) for sample_i, conv_act in zip(out_samples, self.conv_acts)
+            ]
         out_samples = [
             conv_out(sample_i) for sample_i, conv_out in zip(out_samples, self.conv_out_branches)
         ]
