@@ -670,7 +670,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             self.conv_acts = nn.ModuleList([get_activation(act_fn) for _ in range(num_branches)])
 
         else:
-            self.conv_norm_out = None
+            self.conv_norm_out_branches = None
             self.conv_acts = None
 
         conv_out_padding = (conv_out_kernel - 1) // 2
