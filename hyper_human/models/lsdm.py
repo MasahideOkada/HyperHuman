@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.checkpoint
 
 from diffusers import __version__
@@ -578,7 +579,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         self.num_upsamplers = 0
 
         # up
-        reversed_block_out_channels = list(reversed(block_out_channels))
+        reversed_block_out_channels = list(reversed(block_out_channels)) #[1280, 1280, 640, 640]
         reversed_num_attention_heads = list(reversed(num_attention_heads))
         reversed_layers_per_block = list(reversed(layers_per_block))
         reversed_cross_attention_dim = list(reversed(cross_attention_dim))
@@ -590,8 +591,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             is_final_block = i == len(block_out_channels) - 1
 
             prev_output_channel = output_channel
-            output_channel = reversed_block_out_channels[i]
-            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)]
+            output_channel = reversed_block_out_channels[i] # 1280 
+            input_channel = reversed_block_out_channels[min(i + 1, len(block_out_channels) - 1)] # 1280
 
             # add upsample block for all BUT final layer
             if not is_final_block:
@@ -781,6 +782,11 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 If set to `None`, the `safetensors` weights are downloaded if they're available **and** if the
                 `safetensors` library is installed. If set to `True`, the model is forcibly loaded from `safetensors`
                 weights. If set to `False`, `safetensors` weights are not loaded.
+            initialize_conv_in_from_sd (`bool`, *optional*, defaults to `False`)
+                If try to initalize `conv_in_branches` from pretrained stable diffusion's `conv_in`
+            conv_in_init_pad_mode (`str`, *optional*, defaults to `constant`)
+                initialize `conv_in_branches` from pretrained stable diffusion with this padding mode.
+                `constant`, `reflect`, or `replicate`
 
         <Tip>
 
@@ -903,6 +909,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             in_channels_new, out_channels, kernel_size=conv_in_kernel, padding=conv_in_padding
         )
         conv_in_state_dict = conv_in.state_dict()
+        initialize_conv_in_from_sd = kwargs.pop("initialize_conv_in_from_sd", False)
+        conv_in_init_pad_mode = kwargs.pop("conv_in_init_pad_mode", "constant")
+        conv_in_init_padding_size = (in_channels_new - in_channels_old) // 2
+        conv_in_init_padding = (0, 0, 0, 0, conv_in_init_padding_size, conv_in_init_padding_size)
 
         state_dict = OrderedDict()
         for k, v in sd_state_dict.items():
@@ -912,9 +922,24 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     param_name = k.split(".")[-1]
                     # replicate for expert branches
                     for i in range(num_branches):
-                        conv_in_branch_state_dict = conv_in_state_dict.copy()
                         key = f"{block_name}_branches.{i}.{module_name}"
-                        val = conv_in_branch_state_dict[param_name]
+
+                        # I don't know how to initialize this module
+                        if initialize_conv_in_from_sd and param_name == "weight":
+                            weight_param = v.clone().detach()
+                            # padding the channels
+                            val = F.pad(
+                                weight_param, conv_in_init_padding, mode=conv_in_init_pad_mode
+                            )
+                        elif initialize_conv_in_from_sd and param_name == "bias":
+                            # for bias, clone the parameters
+                            bias_param = v.clone().detach()
+                            val = bias_param
+                        else:
+                            # not initialze from stable diffusion
+                            conv_in_branch_state_dict = conv_in_state_dict.copy()
+                            val = conv_in_branch_state_dict[param_name]
+                        
                         state_dict[key] = val
                 case "conv_out" | "conv_norm_out":
                     module_name = ".".join(k.split(".")[1:])
@@ -1337,7 +1362,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             image_embeds = added_cond_kwargs.get("image_embeds")
             encoder_hidden_states = self.encoder_hid_proj(image_embeds)
         # 2. pre-process
-        samples = [conv_in(sample_i) for sample_i, conv_in in zip(samples, self.conv_in_branches)]
+        samples = torch.stack(
+            [conv_in(sample_i) for sample_i, conv_in in zip(samples, self.conv_in_branches)]
+        )
 
         # 2.5 GLIGEN position net
         if cross_attention_kwargs is not None and cross_attention_kwargs.get("gligen", None) is not None:
@@ -1352,6 +1379,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         is_adapter = mid_block_additional_residual is None and down_block_additional_residuals is not None
 
         # down branches
+        out_samples = torch.empty_like(samples, dtype=samples.dtype).to(samples.device)
         down_branch_samples = []
         down_branch_res_samples = [(sample_i,) for sample_i in samples]
         for i, (sample_i, downsample_branch) in enumerate(zip(samples, self.down_block_branches)):
@@ -1377,7 +1405,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     sample_i += down_block_additional_residuals.pop(0)
 
             down_branch_samples.append(sample_i)
-            down_branch_res_samples[i] += res_samples
+            # we don't need the last residual because it is replaced by latents fused from all branches
+            down_branch_res_samples[i] += res_samples[:-1]
 
         # normalize non RGB features to the similar distribution of RGB feature and take average of them
         # mentioned in https://github.com/snap-research/HyperHuman/issues/4
@@ -1450,7 +1479,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         # 5. up
         # shared up blocks
         for i, upsample_block in enumerate(self.up_blocks_shared):
-            #is_final_block = i == len(self.up_blocks) - 1
+            #is_final_block = i == len(self.up_blocks_shared) - 1
             is_final_block = False
 
             res_samples = down_block_res_samples[-len(upsample_block.resnets) :]
@@ -1483,16 +1512,13 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         # distribute the latent to each branch
         num_dim = len(sample.shape)
-        sample.unsqueeze_(0)
-        samples = sample.repeat(self.num_branches, *((1,) * num_dim)).chunk(self.num_branches)
-        samples = [sample_i.squeeze_(0) for sample_i in samples]
+        samples = sample.unsqueeze_(0).repeat(self.num_branches, *((1,) * num_dim))
 
-        out_samples = []
         # up branches
         for i, (sample_i, down_branch_res_samples_i, upsample_branch) in enumerate(
             zip(samples, down_branch_res_samples, self.up_block_branches)
         ):
-            #is_final_block = i == len(self.up_blocks) - 1
+            #is_final_block = i == len(self.up_block_branches) - 1
             is_final_block = True
 
             res_samples = down_branch_res_samples_i[-len(upsample_branch.resnets) :]
@@ -1523,7 +1549,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                     scale=lora_scale,
                 )
             
-            out_samples.append(sample_i)
+            out_samples[i] = sample_i
 
         # 6. post-process
         if self.conv_norm_out_branches:
