@@ -36,7 +36,7 @@ class LSDMDataset(Dataset):
             img_names = [
                 os.path.basename(f) for f in glob.glob(os.path.join(search_dir, f"*.{ext}"))
             ]
-            self.img_names.extend(sorted(img_names))
+            self.img_names.extend(img_names)
         self.img_names = sorted(img_names)
 
         self.preproc = transforms.Compose(
@@ -53,7 +53,7 @@ class LSDMDataset(Dataset):
         self.proportion_empty_prompts = proportion_empty_prompts
     
     def __len__(self) -> int:
-        return len(self.img_files)
+        return len(self.img_names)
     
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         example = dict()
