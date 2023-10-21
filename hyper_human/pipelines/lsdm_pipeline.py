@@ -59,6 +59,7 @@ EXAMPLE_DOC_STRING = """
         ```
 """
 
+# adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L56
 def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     """
     Rescale `noise_cfg` according to `guidance_rescale`. Based on findings of [Common Diffusion Noise Schedules and
@@ -749,8 +750,7 @@ class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixi
         )
         conditioning_image = self.vae.encode(conditioning_image.to(self.unet.dtype)).latent_dist.sample()
         num_dim = len(conditioning_image.shape)
-        conditioning_image.unsqueeze_(0)
-        conditioning_image = conditioning_image.repeat(num_branches, *((1,) * num_dim))
+        conditioning_image = conditioning_image.unsqueeze_(0).repeat(num_branches, *((1,) * num_dim))
 
         # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
