@@ -1379,7 +1379,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         is_adapter = mid_block_additional_residual is None and down_block_additional_residuals is not None
 
         # down branches
-        out_samples = torch.empty_like(samples, dtype=samples.dtype).to(samples.device)
+        out_samples_shape = samples.shape
         down_branch_samples = []
         down_branch_res_samples = [(sample_i,) for sample_i in samples]
         for i, (sample_i, downsample_branch) in enumerate(zip(samples, self.down_block_branches)):
@@ -1514,6 +1514,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         num_dim = len(sample.shape)
         samples = sample.unsqueeze_(0).repeat(self.num_branches, *((1,) * num_dim))
 
+        out_samples = torch.empty(out_samples_shape, dtype=samples.dtype).to(samples.device)
+
         # up branches
         for i, (sample_i, down_branch_res_samples_i, upsample_branch) in enumerate(
             zip(samples, down_branch_res_samples, self.up_block_branches)
@@ -1553,14 +1555,16 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         # 6. post-process
         if self.conv_norm_out_branches:
-            out_samples = [
-                conv_norm_out(sample_i) for (
-                    sample_i, conv_norm_out 
-                ) in zip(out_samples, self.conv_norm_out_branches)
-            ]
-            out_samples = [
-                conv_act(sample_i) for sample_i, conv_act in zip(out_samples, self.conv_acts)
-            ]
+            out_samples = torch.stack(
+                [
+                    conv_norm_out(sample_i) for (
+                        sample_i, conv_norm_out 
+                    ) in zip(out_samples, self.conv_norm_out_branches)
+                ]
+            )
+            out_samples = torch.stack(
+                [conv_act(sample_i) for sample_i, conv_act in zip(out_samples, self.conv_acts)]
+            )
         out_samples = torch.stack(
             [conv_out(sample_i) for sample_i, conv_out in zip(out_samples, self.conv_out_branches)]
         )
