@@ -925,20 +925,20 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                         key = f"{block_name}_branches.{i}.{module_name}"
 
                         # I don't know how to initialize this module
-                        if initialize_conv_in_from_sd and param_name == "weight":
+                        if not initialize_conv_in_from_sd:
+                            # not initialze from stable diffusion
+                            conv_in_branch_state_dict = conv_in_state_dict.copy()
+                            val = conv_in_branch_state_dict[param_name]
+                        elif param_name == "weight":
                             weight_param = v.clone().detach()
                             # padding the channels
                             val = F.pad(
                                 weight_param, conv_in_init_padding, mode=conv_in_init_pad_mode
                             )
-                        elif initialize_conv_in_from_sd and param_name == "bias":
+                        elif param_name == "bias":
                             # for bias, clone the parameters
                             bias_param = v.clone().detach()
                             val = bias_param
-                        else:
-                            # not initialze from stable diffusion
-                            conv_in_branch_state_dict = conv_in_state_dict.copy()
-                            val = conv_in_branch_state_dict[param_name]
                         
                         state_dict[key] = val
                 case "conv_out" | "conv_norm_out":
