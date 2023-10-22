@@ -813,7 +813,7 @@ def main():
 
     def collate_fn(examples):
         pixel_values = torch.stack(
-            [torch.stack(example["pixel_values_list"]) for example in examples]
+            [example["pixel_values"] for example in examples]
         ).transpose_(0, 1)
         pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
 
@@ -824,11 +824,15 @@ def main():
             conditioning_pixel_values.to(memory_format=torch.contiguous_format).float()
         )
 
+        original_sizes = [example["original_size"] for example in examples]
+        crop_top_lefts = [example["crop_top_left"] for example in examples]
         prompts = [example["prompt"] for example in examples]
 
         return {
             "pixel_values": pixel_values,
             "conditioning_pixel_values": conditioning_pixel_values,
+            "original_sizes": original_sizes,
+            "crop_top_lefts": crop_top_lefts,
             "prompts": prompts,
         }
     

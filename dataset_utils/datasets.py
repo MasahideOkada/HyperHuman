@@ -6,7 +6,7 @@ from typing import List, Union, Dict, Any
 import numpy as np
 from PIL import Image
 
-#import torch
+import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.transforms.functional import crop
@@ -80,7 +80,7 @@ class LSDMDataset(Dataset):
         tgt_imgs = [crop(img, top, left, h, w) for img in tgt_imgs]
         cond_img = crop(cond_img, top, left, h, w)
 
-        example["pixel_values_list"] = [self.preproc(img) for img in tgt_imgs]
+        example["pixel_values"] = torch.stack([self.preproc(img) for img in tgt_imgs])
         example["conditioning_pixel_values"] = self.preproc(cond_img)
         example["original_size"] = original_size
         example["crop_top_left"] = crop_top_left
