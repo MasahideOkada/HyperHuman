@@ -37,7 +37,7 @@ class LSDMDataset(Dataset):
                 os.path.basename(f) for f in glob.glob(os.path.join(search_dir, f"*.{ext}"))
             ]
             self.img_names.extend(img_names)
-        self.img_names = sorted(img_names)
+        self.img_names = sorted(self.img_names)
 
         self.preproc = transforms.Compose(
             [
