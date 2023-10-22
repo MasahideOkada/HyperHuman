@@ -456,6 +456,12 @@ def parse_args():
         "More details here: https://arxiv.org/abs/2303.09556.",
     )
     parser.add_argument(
+        "--addition_time_embed_dim",
+        type=int,
+        default=256,
+        help="embed_dim for image size and crop coodinates",
+    )
+    parser.add_argument(
         "--use_8bit_adam", action="store_true", help="Whether or not to use 8-bit Adam from bitsandbytes."
     )
     parser.add_argument(
@@ -690,7 +696,15 @@ def main():
     num_branches = len(args.target_dirs)
     if args.from_sd:
         unet = UNet2DConditionLSDModel.from_pretrained_sd(
-            args.pretrained_model_name_or_path, num_branches=num_branches, subfolder="unet", use_safetensors=True
+            args.pretrained_model_name_or_path,
+            num_branches=num_branches,
+            addition_time_embed_dim=args.addition_time_embed_dim,
+            subfolder="unet",
+            use_safetensors=True
+        )
+        logger.info(
+            "When train the model from a pretrained stable diffusion, "
+            "warning `Some weights of UNet2DConditionLSDModel were not initialized` is expected." 
         )
     else:
         unet = UNet2DConditionLSDModel.from_pretrained(
