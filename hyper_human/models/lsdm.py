@@ -157,10 +157,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         class_embed_type (`str`, *optional*, defaults to `None`):
             The type of class embedding to use which is ultimately summed with the time embeddings. Choose from `None`,
             `"timestep"`, `"identity"`, `"projection"`, or `"simple_projection"`.
-        addition_embed_type (`str`, *optional*, defaults to `None`):
+        addition_embed_type (`str`, *optional*, defaults to `"time"`):
             Configures an optional embedding which will be summed with the time embeddings. Choose from `None` or
             "text". "text" will use the `TextTimeEmbedding` layer.
-        addition_time_embed_dim: (`int`, *optional*, defaults to `None`):
+        addition_time_embed_dim: (`int`, *optional*, defaults to `256`):
             Dimension for the timestep embeddings.
         num_class_embeds (`int`, *optional*, defaults to `None`):
             Input dimension of the learnable embedding matrix to be projected to `time_embed_dim`, when performing
@@ -227,8 +227,8 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         dual_cross_attention: bool = False,
         use_linear_projection: bool = False,
         class_embed_type: Optional[str] = None,
-        addition_embed_type: Optional[str] = None,
-        addition_time_embed_dim: Optional[int] = None,
+        addition_embed_type: Optional[str] = "time",
+        addition_time_embed_dim: int = 256,
         num_class_embeds: Optional[int] = None,
         upcast_attention: bool = False,
         resnet_time_scale_shift: str = "default",
@@ -416,6 +416,9 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             self.add_embedding = TextImageTimeEmbedding(
                 text_embed_dim=cross_attention_dim, image_embed_dim=cross_attention_dim, time_embed_dim=time_embed_dim
             )
+        elif addition_embed_type == "time":
+            self.add_time_proj = Timesteps(addition_time_embed_dim, flip_sin_to_cos, freq_shift)
+            self.add_embedding = TimestepEmbedding(projection_class_embeddings_input_dim, time_embed_dim)
         elif addition_embed_type == "text_time":
             self.add_time_proj = Timesteps(addition_time_embed_dim, flip_sin_to_cos, freq_shift)
             self.add_embedding = TimestepEmbedding(projection_class_embeddings_input_dim, time_embed_dim)
@@ -699,6 +702,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         cls,
         pretrained_sd_model_path: Union[str, os.PathLike],
         num_branches: int = 3,
+        addition_time_embed_dim: Optional[int] = 256,
         **kwargs
     ):
         r"""
@@ -718,6 +722,10 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
             num_branches (`int`, *optional*, defaults to 3)
                 Number of expert branches to replicate
+            
+            addition_time_embed_dim (`int`, *optional*, defaults to 256)
+                embed_dim for image size and crop coodinates if `addition_embed_type` is not in the pretrained SD,
+                it is set to `"time"` and `addition_time_embed_dim` is used for it 
 
             cache_dir (`Union[str, os.PathLike]`, *optional*):
                 Path to a directory where a downloaded pretrained model configuration is cached if the standard cache
@@ -893,7 +901,26 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
                 raise RuntimeError(f"{sd_model_file} does not exist")
             sd_state_dict = torch.load(sd_model_file, map_location="cpu")
         
-        config = {**sd_config, "num_branches": num_branches}
+        addition_embed_type = sd_config.pop("addition_embed_type", None)
+        if addition_embed_type is None:
+            if addition_time_embed_dim is None:
+                raise ValueError("when `addition_embed_type` is None, `addition_time_embed_dim` must be given.")
+            addition_embed_type = "time"
+            projection_class_embeddings_input_dim = addition_time_embed_dim * 6
+
+            config = {
+                **sd_config, 
+                "num_branches": num_branches,
+                "addition_embed_type": addition_embed_type,
+                "addition_time_embed_dim": addition_time_embed_dim,
+                "projection_class_embeddings_input_dim": projection_class_embeddings_input_dim,
+            }
+        else:
+            config = {
+                **sd_config, 
+                "num_branches": num_branches,
+                "addition_embed_type": addition_embed_type,
+            }
         # `in_channels` of `conv_in` changes from the pretrained stable diffusion
         # because a condition latent is concatenated channel-wise to noise latent.
         # here we assume the channel size of the condition is the same as that of the noise
@@ -1297,6 +1324,16 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             image_embs = added_cond_kwargs.get("image_embeds")
             text_embs = added_cond_kwargs.get("text_embeds", encoder_hidden_states)
             aug_emb = self.add_embedding(text_embs, image_embs)
+        elif self.config.addition_embed_type == "time":
+            if "time_ids" not in added_cond_kwargs:
+                raise ValueError(
+                    f"{self.__class__} has the config param `addition_embed_type` set to 'time' which requires the keyword argument `time_ids` to be passed in `added_cond_kwargs`"
+                )
+            time_ids = added_cond_kwargs.get("time_ids")
+            time_embeds = self.add_time_proj(time_ids.flatten())
+            time_embeds = time_embeds.reshape((emb.shape[0], -1))
+            add_embeds = time_embeds.to(emb.dtype)
+            aug_emb = self.add_embedding(add_embeds)
         elif self.config.addition_embed_type == "text_time":
             # SDXL - style
             if "text_embeds" not in added_cond_kwargs:
