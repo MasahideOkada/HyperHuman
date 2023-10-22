@@ -56,7 +56,25 @@ data/
     └── ...
 ```
 
-**To Do**: embed image size and crop coordinates information
+to continue training the model from a checkpoint,
+```
+$ accelerate launch --mixed_precision="fp16" train_lsdm.py \
+--pretrained_model_name_or_path="hyper-human-model" \
+--train_data_dir="data" \
+--target_dirs "rgb" "depth" "normal" \
+--caption_dir="rgb" \
+--condition_dir="pose" \
+--output_dir="hyper-human-model" \
+--resolution=512 \
+--num_train_epochs=100 \
+--train_batch_size=4 \
+--gradient_accumulation_steps=4 \
+--gradient_checkpointing \
+--learning_rate=1e-05 \
+--lr_scheduler="constant" --lr_warmup_steps=0 \
+--enable_xformers_memory_efficient_attention
+```
+
 ## train Structure-Guided Refiner: second stage of HyperHuman
 work in progress
 

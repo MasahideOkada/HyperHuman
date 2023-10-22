@@ -919,6 +919,18 @@ def main():
 
         return text_encoder(inputs.input_ids.to(text_encoder.device))[0]
     
+    # compute time_ids from image size and crop coodinates
+    # modification of https://github.com/huggingface/diffusers/blob/v0.21.4/examples/text_to_image/train_text_to_image_sdxl.py#L970-L980
+    target_size = (args.resolution, args.resolution)
+    def compute_time_ids(original_sizes, crops_coords_top_lefts, target_size):
+        # Adapted from pipeline.StableDiffusionXLPipeline._get_add_time_ids
+        out_add_time_ids = []
+        for original_size, crops_coords_top_left in zip(original_sizes, crops_coords_top_lefts):
+            add_time_ids = list(original_size + crops_coords_top_left + target_size)
+            add_time_ids = torch.tensor([add_time_ids])
+            out_add_time_ids.append(add_time_ids)
+        return torch.cat(out_add_time_ids)
+    
     # Train!
     total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -1015,9 +1027,17 @@ def main():
                 
                 # Get the text embedding for conditioning
                 encoder_hidden_states = encode_prompts(batch["prompts"]).to(latents.device)
+
+                # Get time ids
+                add_time_ids = compute_time_ids(
+                    batch["original_sizes"], batch["crop_top_lefts"], target_size
+                ).to(latents.device)
+                added_cond_kwargs = {"time_ids": add_time_ids}
                 
                 # Predict the noise residual and compute loss
-                model_preds = unet(noisy_latents, timesteps, encoder_hidden_states).samples
+                model_preds = unet(
+                    noisy_latents, timesteps, encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
+                ).samples
 
                 # Get the v-prediction targets
                 targets = torch.stack(
