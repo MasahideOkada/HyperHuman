@@ -56,6 +56,7 @@ data/
     └── ...
 ```
 
+**To Do**: embed image size and crop coordinates information
 ## train Structure-Guided Refiner: second stage of HyperHuman
 work in progress
 
