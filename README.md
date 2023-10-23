@@ -23,6 +23,7 @@ $ accelerate launch --mixed_precision="fp16" train_lsdm.py \
 --target_dirs "rgb" "depth" "normal" \
 --caption_dir="rgb" \
 --condition_dir="pose" \
+--rgb_index 0 \
 --output_dir="hyper-human-model" \
 --resolution=512 \
 --num_train_epochs=100 \

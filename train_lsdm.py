@@ -330,6 +330,17 @@ def parse_args():
         )
     )
     parser.add_argument(
+        "--rgb_index",
+        type=int,
+        default=0,
+        help=(
+            "The index of the folder containing RGB images in `target_dirs`, for example, "
+            "if `--taget_dirs \"rgb\" \"depth\" \"normal\"`, rgb_index is 0, "
+            "if `--taget_dirs \"depth\" \"rgb\" \"normal\"`, rgb_index is 1.\n"
+            "The default value is 0, so it is recommended to put RGB forder in the first place of `target_dirs`"
+        )
+    )
+    parser.add_argument(
         "--image_column", type=str, default="image", help="The column of the dataset containing an image."
     )
     parser.add_argument(
@@ -1050,7 +1061,11 @@ def main():
                 
                 # Predict the noise residual and compute loss
                 model_preds = unet(
-                    noisy_latents, timesteps, encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    added_cond_kwargs=added_cond_kwargs,
+                    rgb_index=args.rgb_index,
                 ).samples
 
                 # Get the v-prediction targets
