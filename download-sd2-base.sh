@@ -1,3 +1,4 @@
+#!/bin/sh
 apt -y install -qq aria2
 aria2c -c -x 16 -s 16 -k 1M https://huggingface.co/stabilityai/stable-diffusion-2-base/resolve/main/text_encoder/model.fp16.safetensors \
 -d ./checkpoints/stable-diffusion-2-base/text_encoder/bin
