@@ -47,6 +47,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 EXAMPLE_DOC_STRING = """
     Examples:
+        To Do: This example doc is not completed
         ```py
         >>> import torch
         >>> from diffusers import LSDPipeline
@@ -92,7 +93,8 @@ class LSDPipelineOutput(BaseOutput):
 
 class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin):
     r"""
-    Pipeline for text-to-image generation using Stable Diffusion.
+    Pipeline for text-to-image generation using Latent Structural Diffusion.
+    https://arxiv.org/abs/2310.08579
 
     This model inherits from [`DiffusionPipeline`]. Check the superclass documentation for the generic methods
     implemented for all pipelines (downloading, saving, running on a particular device, etc.).
