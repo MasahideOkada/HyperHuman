@@ -1444,6 +1444,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
             down_branch_samples.append(sample_i)
             # we don't need the last residual because it is replaced by latents fused from all branches
             down_branch_res_samples[i] += res_samples[:-1]
+            down_sample = res_samples[-2]
 
         # normalize non RGB features to the similar distribution of RGB feature and take average of them
         # mentioned in https://github.com/snap-research/HyperHuman/issues/4
@@ -1456,7 +1457,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         sample = average(down_branch_samples)
 
         # shared down blocks
-        down_block_res_samples = (sample,)
+        down_block_res_samples = (down_sample, sample,)
         for downsample_block in self.down_blocks_shared:
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
                 # For t2i-adapter CrossAttnDownBlock2D
