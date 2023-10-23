@@ -62,7 +62,7 @@ from diffusers.schedulers.scheduling_utils import SCHEDULER_CONFIG_NAME
 
 from hyper_human.models.lsdm import UNet2DConditionLSDModel
 from dataset_utils.datasets import LSDMDataset
-from hyper_human.pipelines.lsdm_pipeline import LSDPipeline
+from hyper_human.pipelines.lsdm_pipeline import LatentStructuralDiffusionPipeline
 
 if is_wandb_available():
     import wandb
@@ -154,7 +154,7 @@ More information on all the CLI arguments and the environment are available on y
 def log_validation(vae, text_encoder, tokenizer, unet, scheduler, args, accelerator, weight_dtype, step):
     logger.info("Running validation... ")
 
-    pipeline = LSDPipeline(
+    pipeline = LatentStructuralDiffusionPipeline(
         vae=accelerator.unwrap_model(vae),
         text_encoder=accelerator.unwrap_model(text_encoder),
         tokenizer=tokenizer,
@@ -1147,7 +1147,7 @@ def main():
         if args.use_ema:
             ema_unet.copy_to(unet.parameters())
 
-        pipeline = LSDPipeline(
+        pipeline = LatentStructuralDiffusionPipeline(
             vae=vae,
             text_encoder=text_encoder,
             tokenizer=tokenizer,

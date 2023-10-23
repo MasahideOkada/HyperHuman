@@ -75,9 +75,9 @@ def rescale_noise_cfg(noise_cfg, noise_pred_text, guidance_rescale=0.0):
     return noise_cfg
 
 @dataclass
-class LSDPipelineOutput(BaseOutput):
+class LatentStructuralDiffusionPipelineOutput(BaseOutput):
     """
-    Output class for Stable Diffusion pipelines.
+    Output class for Latent Structural Diffusion pipelines.
 
     Args:
         images (`List[List[PIL.Image.Image]]` or `np.ndarray`)
@@ -91,7 +91,7 @@ class LSDPipelineOutput(BaseOutput):
     images: Union[List[List[PIL.Image.Image]], np.ndarray]
     nsfw_content_detected: Optional[List[bool]]
 
-class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin):
+class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin):
     r"""
     Pipeline for text-to-image generation using Latent Structural Diffusion.
     https://arxiv.org/abs/2310.08579
@@ -947,4 +947,4 @@ class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixi
         if not return_dict:
             return (out_images, has_nsfw_concepts)
 
-        return LSDPipelineOutput(images=out_images, nsfw_content_detected=has_nsfw_concepts)
+        return LatentStructuralDiffusionPipelineOutput(images=out_images, nsfw_content_detected=has_nsfw_concepts)
