@@ -83,8 +83,8 @@ class LSDPipelineOutput(BaseOutput):
         images (`List[List[PIL.Image.Image]]` or `np.ndarray`)
             List of list of denoised PIL images of length `batch_size`, each of which has length of `num_branches` 
             or numpy array of shape `(batch_size, num_branches, height, width, num_channels)`. PIL images or numpy array present the denoised images of the diffusion pipeline.
-        nsfw_content_detected (`List[bool]`)
-            List of flags denoting whether the corresponding generated image likely represents "not-safe-for-work"
+        nsfw_content_detected (`List[List[bool]]`)
+            List of list of flags denoting whether the corresponding generated image likely represents "not-safe-for-work"
             (nsfw) content, or `None` if safety checking could not be performed.
     """
 
@@ -591,6 +591,28 @@ class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixi
         add_time_ids = torch.tensor([add_time_ids], dtype=dtype)
         return add_time_ids
     
+    # modification of https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/t2i_adapter/pipeline_stable_diffusion_xl_adapter.py#L568
+    def _default_height_width(self, height, width, image):
+        # NOTE: It is possible that a list of images have different
+        # dimensions for each image, so just checking the first image
+        # is not _exactly_ correct, but it is simple.
+        while isinstance(image, list):
+            image = image[0]
+
+        if height is None:
+            if isinstance(image, PIL.Image.Image):
+                height = image.height
+            elif isinstance(image, torch.Tensor):
+                height = image.shape[-2]
+
+        if width is None:
+            if isinstance(image, PIL.Image.Image):
+                width = image.width
+            elif isinstance(image, torch.Tensor):
+                width = image.shape[-1]
+
+        return height, width
+    
     @torch.no_grad()
     @replace_example_docstring(EXAMPLE_DOC_STRING)
     def __call__(
@@ -726,8 +748,7 @@ class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixi
                 "not-safe-for-work" (nsfw) content.
         """
         # 0. Default height and width to unet
-        height = height or self.unet.config.sample_size * self.vae_scale_factor
-        width = width or self.unet.config.sample_size * self.vae_scale_factor
+        height, width = self._default_height_width(height, width, image)
 
         original_size = original_size or (height, width)
         target_size = target_size or (height, width)
@@ -888,35 +909,42 @@ class LSDPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixi
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
 
+        # convert the tensor shape from (num_branches, batch, ...) to (batch, num_branches, ...)
+        latents = latents.transpose_(0, 1)
         if not output_type == "latent":
             images = [
-                self.vae.decode(latents_i / self.vae.config.scaling_factor, return_dict=False)[0] for (
-                    latents_i
-                ) in latents
+                self.vae.decode(
+                    latents_i / self.vae.config.scaling_factor, return_dict=False
+                )[0] for latents_i in latents
             ]
             safaty_checks = [
-                self.run_safety_checker(image_i, device, prompt_embeds.dtype) for image_i in images
+                self.run_safety_checker(
+                    image_branches, device, prompt_embeds.dtype
+                ) for image_branches in images
             ]
         else:
             images = latents
-            safaty_checks = [(image_i, None) for image_i in images]
+            safaty_checks = [
+                (image_branches, None) for image_branches in images
+            ]
 
         out_images = []
-        has_nsfw_concept = None
-        for image_i, has_nsfw_concept_i in safaty_checks:
+        has_nsfw_concepts = [] if safaty_checks[0][0] is not None else None
+        for i, (image_branches, has_nsfw_concept_i) in enumerate(safaty_checks):
             if has_nsfw_concept_i is None:
-                do_denormalize = [True] * image_i.shape[0]
+                do_denormalize = [True] * image_branches.shape[0]
             else:
                 do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept_i]
 
-            out_image = self.image_processor.postprocess(image_i, output_type=output_type, do_denormalize=do_denormalize)
-            out_images.append(out_image)
-            has_nsfw_concept = has_nsfw_concept or has_nsfw_concept_i
+            out_image_branches = self.image_processor.postprocess(image_branches, output_type=output_type, do_denormalize=do_denormalize)
+            out_images.append(out_image_branches)
+            if has_nsfw_concepts is not None:
+                has_nsfw_concepts.append(has_nsfw_concept_i)
 
         # Offload all models
         self.maybe_free_model_hooks()
 
         if not return_dict:
-            return (out_images, has_nsfw_concept)
+            return (out_images, has_nsfw_concepts)
 
-        return LSDPipelineOutput(images=out_images, nsfw_content_detected=has_nsfw_concept)
+        return LSDPipelineOutput(images=out_images, nsfw_content_detected=has_nsfw_concepts)
