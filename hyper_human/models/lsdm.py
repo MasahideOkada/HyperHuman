@@ -1036,6 +1036,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         return model
     
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/models/unet_2d_condition.py#L593
     @property
     def attn_processors(self) -> Dict[str, AttentionProcessor]:
         r"""
@@ -1060,6 +1061,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         return processors
     
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/models/unet_2d_condition.py#L616
     def set_attn_processor(
         self, processor: Union[AttentionProcessor, Dict[str, AttentionProcessor]], _remove_lora=False
     ):
@@ -1096,6 +1098,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         for name, module in self.named_children():
             fn_recursive_attn_processor(name, module, processor)
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/models/unet_2d_condition.py#L652
     def set_default_attn_processor(self):
         """
         Disables custom attention processors and sets the default attention implementation.
@@ -1111,6 +1114,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
 
         self.set_attn_processor(processor, _remove_lora=True)            
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/models/unet_2d_condition.py#L667
     def set_attention_slice(self, slice_size):
         r"""
         Enable sliced attention computation.
@@ -1176,6 +1180,7 @@ class UNet2DConditionLSDModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMix
         for module in self.children():
             fn_recursive_set_attention_slice(module, reversed_slice_size)
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/models/unet_2d_condition.py#L732
     def _set_gradient_checkpointing(self, module, value=False):
         if hasattr(module, "gradient_checkpointing"):
             module.gradient_checkpointing = value

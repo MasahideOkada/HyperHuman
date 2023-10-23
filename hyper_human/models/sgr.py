@@ -84,9 +84,13 @@ class SGREncoder(ModelMixin, ConfigMixin):
             ]
         )
 
-    def forward(self, xs: List[Tensor]) -> Tensor:
-        if len(xs) != self.num_conditions:
-            raise ValueError(f"len(x) must be {self.num_conditions}, but got {len(xs)}")
-        encoded = [embed(x) for x, embed in zip(xs, self.embeds)]
-        encoded = torch.stack(encoded).sum(dim=0)
-        return encoded
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Parameters:
+            x (`torch.Tensor`)
+                A tensor with the following shape `(num_branches, batch, channel, height, width)`
+        """
+        if x.shape[0] != self.num_conditions:
+            raise ValueError(f"number of input conditions must be {self.num_conditions}, but got {x.shape[0]}")
+        encoded = torch.stack([embed(x) for x, embed in zip(x, self.embeds)])
+        return encoded.sum(dim=0)

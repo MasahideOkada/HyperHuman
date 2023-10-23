@@ -89,9 +89,11 @@ class LatentStructuralDiffusionPipelineOutput(BaseOutput):
     """
 
     images: Union[List[List[PIL.Image.Image]], np.ndarray]
-    nsfw_content_detected: Optional[List[bool]]
+    nsfw_content_detected: Optional[List[List[bool]]]
 
-class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin):
+class LatentStructuralDiffusionPipeline(
+    DiffusionPipeline, TextualInversionLoaderMixin, LoraLoaderMixin, FromSingleFileMixin
+):
     r"""
     Pipeline for text-to-image generation using Latent Structural Diffusion.
     https://arxiv.org/abs/2310.08579
@@ -220,7 +222,8 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
             vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=True
         )
         self.register_to_config(requires_safety_checker=requires_safety_checker)
-    
+
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L196    
     def enable_vae_slicing(self):
         r"""
         Enable sliced VAE decoding. When this option is enabled, the VAE will split the input tensor in slices to
@@ -228,6 +231,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         """
         self.vae.enable_slicing()
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L203
     def disable_vae_slicing(self):
         r"""
         Disable sliced VAE decoding. If `enable_vae_slicing` was previously enabled, this method will go back to
@@ -235,6 +239,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         """
         self.vae.disable_slicing()
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L210
     def enable_vae_tiling(self):
         r"""
         Enable tiled VAE decoding. When this option is enabled, the VAE will split the input tensor into tiles to
@@ -243,6 +248,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         """
         self.vae.enable_tiling()
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L218
     def disable_vae_tiling(self):
         r"""
         Disable tiled VAE decoding. If `enable_vae_tiling` was previously enabled, this method will go back to
@@ -250,6 +256,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         """
         self.vae.disable_tiling()
     
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L255
     def encode_prompt(
         self,
         prompt,
@@ -260,7 +267,6 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
         lora_scale: Optional[float] = None,
-        clip_skip: Optional[int] = None,
     ):
         r"""
         Encodes the prompt into text encoder hidden states.
@@ -410,6 +416,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
 
         return prompt_embeds, negative_prompt_embeds
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L414
     def run_safety_checker(self, image, device, dtype):
         if self.safety_checker is None:
             has_nsfw_concept = None
@@ -424,6 +431,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
             )
         return image, has_nsfw_concept
     
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L439
     def prepare_extra_step_kwargs(self, generator, eta):
         # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
         # eta (η) is only used with the DDIMScheduler, it will be ignored for other schedulers.
@@ -441,6 +449,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
             extra_step_kwargs["generator"] = generator
         return extra_step_kwargs
 
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L456
     def check_inputs(
         self,
         prompt,
@@ -557,6 +566,7 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
 
         return image
     
+    # adapted from https://github.com/huggingface/diffusers/blob/v0.21.4/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion.py#L503
     def prepare_latents(self, batch_size, num_channels_latents, height, width, dtype, device, generator, latents=None):
         shape = (batch_size, num_channels_latents, height // self.vae_scale_factor, width // self.vae_scale_factor)
         if isinstance(generator, list) and len(generator) != batch_size:
@@ -947,4 +957,6 @@ class LatentStructuralDiffusionPipeline(DiffusionPipeline, TextualInversionLoade
         if not return_dict:
             return (out_images, has_nsfw_concepts)
 
-        return LatentStructuralDiffusionPipelineOutput(images=out_images, nsfw_content_detected=has_nsfw_concepts)
+        return LatentStructuralDiffusionPipelineOutput(
+            images=out_images, nsfw_content_detected=has_nsfw_concepts
+        )
