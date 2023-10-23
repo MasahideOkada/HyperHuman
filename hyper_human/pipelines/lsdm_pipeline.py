@@ -940,13 +940,15 @@ class LatentStructuralDiffusionPipeline(
 
         out_images = []
         has_nsfw_concepts = [] if safaty_checks[0][0] is not None else None
-        for i, (image_branches, has_nsfw_concept_i) in enumerate(safaty_checks):
+        for image_branches, has_nsfw_concept_i in safaty_checks:
             if has_nsfw_concept_i is None:
                 do_denormalize = [True] * image_branches.shape[0]
             else:
                 do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept_i]
 
-            out_image_branches = self.image_processor.postprocess(image_branches, output_type=output_type, do_denormalize=do_denormalize)
+            out_image_branches = self.image_processor.postprocess(
+                image_branches, output_type=output_type, do_denormalize=do_denormalize
+            )
             out_images.append(out_image_branches)
             if has_nsfw_concepts is not None:
                 has_nsfw_concepts.append(has_nsfw_concept_i)
