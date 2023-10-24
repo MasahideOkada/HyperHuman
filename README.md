@@ -88,9 +88,9 @@ $ accelerate launch --mixed_precision="fp16" train_sgr.py \
 --from_sd \
 --train_data_dir="data" \
 --output_dir="hyper-human-sgr" \
---condition_dirs "pose" "normal" "depth" \
+--condition_dirs "pose" "normal-lsd" "depth-lsd" \
 --caption_dir="rgb" \
---resolution=512 \
+--resolution=1024 \
 --num_train_epochs=100 \
 --train_batch_size=4 \
 --gradient_accumulation_steps=4 \
