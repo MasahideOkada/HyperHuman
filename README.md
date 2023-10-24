@@ -23,8 +23,8 @@ $ accelerate launch --mixed_precision="fp16" train_lsdm.py \
 --target_dirs "rgb" "depth" "normal" \
 --caption_dir="rgb" \
 --condition_dir="pose" \
---rgb_index 0 \
---output_dir="hyper-human-model" \
+--rgb_index=0 \
+--output_dir="hyper-human-lsd" \
 --resolution=512 \
 --num_train_epochs=100 \
 --train_batch_size=4 \
@@ -65,7 +65,7 @@ $ accelerate launch --mixed_precision="fp16" train_lsdm.py \
 --target_dirs "rgb" "depth" "normal" \
 --caption_dir="rgb" \
 --condition_dir="pose" \
---output_dir="hyper-human-model" \
+--output_dir="hyper-human-lsd" \
 --resolution=512 \
 --num_train_epochs=100 \
 --train_batch_size=4 \
@@ -77,7 +77,45 @@ $ accelerate launch --mixed_precision="fp16" train_lsdm.py \
 ```
 
 ## train Structure-Guided Refiner: second stage of HyperHuman
-work in progress
+download stable diffusion XL base 1.0
+```
+$ source ./download-sdxl1-base.sh
+```
+and train a SGR model using the pretrained stable diffusion
+```
+$ accelerate launch --mixed_precision="fp16" train_sgr.py \
+--pretrained_model_name_or_path="checkpoints/stable-diffusion-xl-base-1.0" \
+--from_sd \
+--train_data_dir="data" \
+--output_dir="hyper-human-sgr" \
+--condition_dirs "pose" "normal" "depth" \
+--caption_dir="rgb" \
+--resolution=512 \
+--num_train_epochs=100 \
+--train_batch_size=4 \
+--gradient_accumulation_steps=4 \
+--gradient_checkpointing \
+--learning_rate=1e-05 \
+--lr_scheduler="constant" --lr_warmup_steps=0 \
+--enable_xformers_memory_efficient_attention
+```
+to continue training the model from a checkpoint,
+```
+$ accelerate launch --mixed_precision="fp16" train_sgr.py \
+--pretrained_model_name_or_path="hyper-human-sgr" \
+--train_data_dir="data" \
+--output_dir="hyper-human-sgr" \
+--condition_dirs "pose" "normal" "depth" \
+--caption_dir="rgb" \
+--resolution=512 \
+--num_train_epochs=100 \
+--train_batch_size=4 \
+--gradient_accumulation_steps=4 \
+--gradient_checkpointing \
+--learning_rate=1e-05 \
+--lr_scheduler="constant" --lr_warmup_steps=0 \
+--enable_xformers_memory_efficient_attention
+```
 
 ### some idea
 can facial landmarks be effective as a condtion or target for face image generation or face super resolution?
