@@ -99,7 +99,7 @@ class SGRDataset(Dataset):
     def __init__(
         self,
         data_dir: Union[str, os.PathLike],
-        target_subdir: Union[str, os.PathLike],
+        #target_subdir: Union[str, os.PathLike],
         condition_subdirs: List[Union[str, os.PathLike]],
         caption_subdir: Union[str, os.PathLike],
         resolution: int = 512,
@@ -109,13 +109,13 @@ class SGRDataset(Dataset):
         ext: Union[str, List[str]] = "png",
         seed: int = 1,
     ):
-        self.tgt_dir = os.path.join(data_dir, target_subdir)
+        #self.tgt_dir = os.path.join(data_dir, target_subdir)
         self.cond_dirs = [os.path.join(data_dir, sub_dir) for sub_dir in condition_subdirs]
         self.cap_dir = os.path.join(data_dir, caption_subdir)
         self.resolution = resolution
 
         # get image filenames
-        search_dir = os.path.join(data_dir, target_subdir)
+        search_dir = os.path.join(data_dir, condition_subdirs[0])
         exts = [ext] if isinstance(ext, str) else ext
         self.img_names = []
         for ext in exts:
@@ -147,25 +147,25 @@ class SGRDataset(Dataset):
 
         # get data paths
         img_name = self.img_names[idx]
-        tgt_path = os.path.join(self.tgt_dir, img_name)
+        #tgt_path = os.path.join(self.tgt_dir, img_name)
         cond_paths = [os.path.join(dir, img_name) for dir in self.cond_dirs]
         cap_name = ".".join([*(img_name.split(".")[:-1]), "txt"])
         cap_path = os.path.join(self.cap_dir, cap_name)
 
         # load images
-        tgt_img = Image.open(tgt_path).convert("RGB")
+        #tgt_img = Image.open(tgt_path).convert("RGB")
         cond_imgs = [Image.open(path).convert("RGB") for path in cond_paths]
 
         # get image size and crop coordinates
-        ref_img = tgt_img
+        ref_img = cond_imgs[0]
         original_size = (ref_img.width, ref_img.height)
         top, left, h, w = self.random_crop.get_params(ref_img, (self.resolution, self.resolution))
         crop_top_left = (top, left)
         # crop images
-        tgt_img = crop(tgt_img, top, left, h, w)
+        #tgt_img = crop(tgt_img, top, left, h, w)
         cond_imgs = [crop(img, top, left, h, w) for img in cond_imgs]
 
-        tgt_img = self.preproc(tgt_img)
+        #tgt_img = self.preproc(tgt_img)
         cond_imgs = [self.preproc(img) for img in cond_imgs]
 
         # get prompt
@@ -193,8 +193,8 @@ class SGRDataset(Dataset):
                 # for images, fill values with zero
                 cond_imgs[cond] = torch.zeros_like(cond_imgs[cond], dtype=cond_imgs[cond].dtype)
         
-        example["pixel_values"] = tgt_img
-        example["conditioning_pixel_values"] = torch.stack(cond_imgs)
+        #example["pixel_values"] = tgt_img
+        example["pixel_values"] = torch.stack(cond_imgs)
         example["original_size"] = original_size
         example["crop_top_left"] = crop_top_left
         example["prompt"] = prompt
