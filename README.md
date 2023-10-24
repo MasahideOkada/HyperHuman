@@ -60,7 +60,7 @@ data/
 to continue training the model from a checkpoint,
 ```
 $ accelerate launch --mixed_precision="fp16" train_lsdm.py \
---pretrained_model_name_or_path="hyper-human-model" \
+--pretrained_model_name_or_path="hyper-human-lsd" \
 --train_data_dir="data" \
 --target_dirs "rgb" "depth" "normal" \
 --caption_dir="rgb" \
