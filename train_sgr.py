@@ -907,7 +907,7 @@ def main(args):
         accelerator.init_trackers(args.tracker_project_name, config=tracker_config)
     
     # tokenize and encode prompts
-    # modification of https://github.com/huggingface/diffusers/blob/main/examples/text_to_image/train_text_to_image_sdxl.py#L478
+    # modification of https://github.com/huggingface/diffusers/blob/v0.21.4/examples/text_to_image/train_text_to_image_sdxl.py#L438
     random.seed(1)
     tokenizers = [tokenizer_1, tokenizer_2]
     text_encoders = [text_encoder_1, text_encoder_2]
@@ -1045,7 +1045,6 @@ def main(args):
                     "text_embeds": pooled_prompt_embeds.to(latents.device),
                     "time_ids": add_time_ids.to(latents.device)
                 }
-                prompt_embeds = prompt_embeds
                 model_pred = unet(
                     noisy_model_input, timesteps, encoder_hidden_states, added_cond_kwargs=added_cond_kwargs
                 ).sample
